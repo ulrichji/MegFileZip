@@ -1,10 +1,12 @@
 pub mod filename;
 pub mod table_record;
 pub mod filemeta;
+pub mod export_file;
 
 pub use filename::Filename;
 pub use table_record::TableRecord;
 pub use filemeta::FileMeta;
+pub use export_file::ExportFile;
 
 mod osext;
 mod crc;
@@ -17,35 +19,6 @@ use std::io::Seek;
 use std::io::Read;
 use std::io::SeekFrom;
 use std::path::PathBuf;
-
-struct PetroglyphExportFile
-{
-    file_path: PathBuf,
-    internal_file_name: String,
-    table_record: TableRecord
-}
-
-impl PetroglyphExportFile
-{
-    fn from_path(path: &PathBuf) -> PetroglyphExportFile {
-        let internal_file_name = Filename::from_path(path).filename;
-        PetroglyphExportFile {
-            file_path: path.clone(),
-            internal_file_name: internal_file_name.clone(),
-            table_record: TableRecord{
-                crc: crc::crc32::compute_from_bytes(internal_file_name.as_bytes()),
-                index: 0,
-                size: osext::get_file_size(path).unwrap() as u32,
-                start: 0,
-                name: 0
-            }
-        }
-    }
-
-    fn get_table_record(&self) -> &TableRecord {
-        &self.table_record
-    }
-}
 
 pub struct PetroglyphMegaFile
 {
@@ -126,9 +99,9 @@ impl PetroglyphMegaFile
         let mut output_file = File::create(output_file_path).unwrap();
         let files_to_read = osext::list_files_recursive(input_dir).unwrap();
 
-        let mut files: Vec<PetroglyphExportFile> = files_to_read
+        let mut files: Vec<ExportFile> = files_to_read
             .iter()
-            .map(|path| PetroglyphExportFile::from_path(path))
+            .map(|path| ExportFile::from_path(path))
             .collect();
 
         files.sort_by_key(|export_file| export_file.internal_file_name.clone() );
@@ -186,7 +159,7 @@ impl PetroglyphMegaFile
     }
 
     fn write_file_table_records<W: Write>(writer: &mut W,
-                                          files: &Vec<PetroglyphExportFile>) -> Vec<TableRecord> {
+                                          files: &Vec<ExportFile>) -> Vec<TableRecord> {
         files
             .iter()
             .map(|export_file|{
@@ -197,7 +170,7 @@ impl PetroglyphMegaFile
             .collect()
     }
 
-    fn write_files<W: Write>(writer: &mut W, files_to_read: &Vec<PetroglyphExportFile>) {
+    fn write_files<W: Write>(writer: &mut W, files_to_read: &Vec<ExportFile>) {
         for export_file in files_to_read {
             let mut file = File::open(&export_file.file_path).unwrap();
             let mut file_content = Vec::new();
