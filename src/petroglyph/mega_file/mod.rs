@@ -22,7 +22,7 @@ use std::io::Read;
 use std::io::SeekFrom;
 use std::path::PathBuf;
 
-pub struct PetroglyphMegaFile
+pub struct MegaFile
 {
     file: File,
     _header: Header,
@@ -30,9 +30,9 @@ pub struct PetroglyphMegaFile
     table_records: Vec<TableRecord>
 }
 
-impl PetroglyphMegaFile
+impl MegaFile
 {
-    pub fn create(path: &PathBuf) -> Result<PetroglyphMegaFile, std::io::Error> {
+    pub fn create(path: &PathBuf) -> Result<MegaFile, std::io::Error> {
         let mut file = File::open(path)?;
 
         let header = Header::create_from_cursor(&mut file)?;
@@ -47,7 +47,7 @@ impl PetroglyphMegaFile
             .map(|_i| { TableRecord::create_from_cursor(&mut file).unwrap() })
             .collect();
 
-        Ok(PetroglyphMegaFile{
+        Ok(MegaFile{
             file,
             _header: header,
             filename_table,
@@ -94,7 +94,7 @@ impl PetroglyphMegaFile
             .collect()
     }
 
-    pub fn create_from_directory(input_dir: &PathBuf, output_file_path: &PathBuf) -> PetroglyphMegaFile {
+    pub fn create_from_directory(input_dir: &PathBuf, output_file_path: &PathBuf) -> MegaFile {
         let mut output_file = File::create(output_file_path).unwrap();
         let files_to_read = osext::list_files_recursive(input_dir).unwrap();
 
@@ -112,8 +112,8 @@ impl PetroglyphMegaFile
             export_file.table_record.name = i as u32;
         }
 
-        let header_len = PetroglyphMegaFile::write_header(&mut output_file, files.len(), files.len());
-        let filenames_len = PetroglyphMegaFile::write_file_names(&mut output_file, &filenames);
+        let header_len = MegaFile::write_header(&mut output_file, files.len(), files.len());
+        let filenames_len = MegaFile::write_file_names(&mut output_file, &filenames);
         let table_records_size: usize = files
             .iter()
             .map(|export_file| export_file.get_table_record().get_binary_size())
@@ -128,10 +128,10 @@ impl PetroglyphMegaFile
             current_file_index += export_file.table_record.size as usize;
         }
 
-        let table_records = PetroglyphMegaFile::write_file_table_records(&mut output_file, &files);
-        PetroglyphMegaFile::write_files(&mut output_file, &files);
+        let table_records = MegaFile::write_file_table_records(&mut output_file, &files);
+        MegaFile::write_files(&mut output_file, &files);
 
-        PetroglyphMegaFile {
+        MegaFile {
             file: output_file,
             _header: Header::create(filenames.len() as u32, files.len() as u32),
             filename_table: filenames.iter().map(|filename_str| Filename{ filename: filename_str.clone() } ).collect(),

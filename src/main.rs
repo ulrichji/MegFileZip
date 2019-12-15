@@ -1,7 +1,5 @@
 mod petroglyph;
 
-use petroglyph::mega_file;
-
 use structopt::StructOpt;
 use std::path::PathBuf;
 
@@ -37,7 +35,7 @@ fn main()
         ArgsOpt::Extract {input_file, output_dir} => {
             let output_dir = output_dir.unwrap_or(PathBuf::from("."));
 
-            let mut mega_file = mega_file::PetroglyphMegaFile::create(&input_file).unwrap();
+            let mut mega_file = petroglyph::MegaFile::create(&input_file).unwrap();
             let file_names_to_extract: Vec<String> = mega_file.get_file_names().map(|x| x.clone()).collect();
             for internal_file_name in file_names_to_extract {
                 let output_file_relative = PathBuf::from(&internal_file_name);
@@ -46,21 +44,21 @@ fn main()
             }
         },
         ArgsOpt::Paths {input} => {
-            let mega_file = mega_file::PetroglyphMegaFile::create(&input).unwrap();
+            let mega_file = petroglyph::MegaFile::create(&input).unwrap();
             for file_name in mega_file.get_file_names() {
                 println!("{}", file_name);
             }
 
         },
         ArgsOpt::Info {input} => {
-            let mega_file = mega_file::PetroglyphMegaFile::create(&input).unwrap();
+            let mega_file = petroglyph::MegaFile::create(&input).unwrap();
             for mega_file in mega_file.get_metadata() {
                 println!("{}", mega_file);
             }
         }
         ArgsOpt::Create{ input_directory, output_file } => {
             let output_file = output_file.unwrap_or(input_directory.with_extension("meg"));
-            let _mega_file = mega_file::PetroglyphMegaFile::create_from_directory(&input_directory, &output_file);
+            let _mega_file = petroglyph::MegaFile::create_from_directory(&input_directory, &output_file);
         }
     }
 }
