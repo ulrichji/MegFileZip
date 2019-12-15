@@ -1,8 +1,10 @@
 pub mod filename;
 pub mod table_record;
+pub mod filemeta;
 
 pub use filename::Filename;
 pub use table_record::TableRecord;
+pub use filemeta::FileMeta;
 
 mod osext;
 mod crc;
@@ -42,33 +44,6 @@ impl PetroglyphExportFile
 
     fn get_table_record(&self) -> &TableRecord {
         &self.table_record
-    }
-}
-
-pub struct PetroglyphFileMeta
-{
-    pub crc: u32,
-    pub index: u32,
-    pub size: u32,
-    pub start: u32,
-    pub name: Filename,
-    pub name_index: u32
-}
-
-impl PetroglyphFileMeta
-{
-    fn create_from_table_record(table_record: &TableRecord,
-                                filename_list: &Vec<Filename>) -> PetroglyphFileMeta {
-        PetroglyphFileMeta{
-            crc: table_record.crc,
-            index: table_record.index,
-            size: table_record.size,
-            start: table_record.start,
-            name: Filename {
-                filename: filename_list[table_record.name as usize].filename.clone()
-            },
-            name_index: table_record.name
-        }
     }
 }
 
@@ -139,11 +114,11 @@ impl PetroglyphMegaFile
         self.filename_table.iter().map(|t| &t.filename)
     }
 
-    pub fn get_metadata(&self) -> Vec<PetroglyphFileMeta> {
+    pub fn get_metadata(&self) -> Vec<FileMeta> {
         self.table_records
             .iter()
-            .map(|table_record| PetroglyphFileMeta::create_from_table_record(&table_record,
-                                                                             &self.filename_table))
+            .map(|table_record| FileMeta::create_from_table_record(&table_record,
+                                                                   &self.filename_table))
             .collect()
     }
 

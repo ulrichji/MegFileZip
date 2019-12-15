@@ -55,7 +55,7 @@ fn main()
         ArgsOpt::Info {input} => {
             let mega_file = mega_file::PetroglyphMegaFile::create(&input).unwrap();
             for mega_file in mega_file.get_metadata() {
-                println!("{}: crc={}, index={}, name_index={}, size={}, start={}", mega_file.name.filename, mega_file.crc, mega_file.index, mega_file.name_index, mega_file.size, mega_file.start);
+                println!("{}", mega_file);
             }
         }
         ArgsOpt::Create{ input_directory, output_file } => {
