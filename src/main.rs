@@ -14,42 +14,6 @@ use std::io::Read;
 use std::io::SeekFrom;
 use std::path::PathBuf;
 
-struct PetroglyphTableRecord
-{
-    crc: u32,
-    index: u32,
-    size: u32,
-    start: u32,
-    name: u32
-}
-
-impl PetroglyphTableRecord
-{
-    fn create_from_cursor<R: Read + Seek>(reader: &mut R) -> Result<PetroglyphTableRecord, std::io::Error> {
-        let crc = reader.read_u32::<LittleEndian>()?;
-        let index = reader.read_u32::<LittleEndian>()?;
-        let size = reader.read_u32::<LittleEndian>()?;
-        let start = reader.read_u32::<LittleEndian>()?;
-        let name = reader.read_u32::<LittleEndian>()?;
-
-        //println!("crc: {}, index: {}, size: {}, start: {}, name: {}", crc, index, size, start, name);
-
-        Ok( PetroglyphTableRecord{ crc, index, size, start, name } )
-    }
-
-    fn get_binary_size(&self) -> usize {
-        std::mem::size_of::<u32>() * 5
-    }
-
-    fn serialize<W: Write>(&self, writer: &mut W) {
-        writer.write_u32::<LittleEndian>(self.crc).unwrap();
-        writer.write_u32::<LittleEndian>(self.index).unwrap();
-        writer.write_u32::<LittleEndian>(self.size).unwrap();
-        writer.write_u32::<LittleEndian>(self.start).unwrap();
-        writer.write_u32::<LittleEndian>(self.name).unwrap();
-    }
-}
-
 struct PetroglyphFileMeta
 {
     crc: u32,
@@ -62,7 +26,7 @@ struct PetroglyphFileMeta
 
 impl PetroglyphFileMeta
 {
-    fn create_from_table_record(table_record: &PetroglyphTableRecord, filename_list: &Vec<mega_file::Filename>) -> PetroglyphFileMeta {
+    fn create_from_table_record(table_record: &mega_file::TableRecord, filename_list: &Vec<mega_file::Filename>) -> PetroglyphFileMeta {
         PetroglyphFileMeta{
             crc: table_record.crc,
             index: table_record.index,
@@ -102,8 +66,8 @@ impl PetroglyphExportFile
         }
     }
 
-    fn as_table_record(&self) -> PetroglyphTableRecord {
-        return PetroglyphTableRecord {
+    fn as_table_record(&self) -> mega_file::TableRecord {
+        return mega_file::TableRecord {
             crc: self.crc32,
             index: self.index,
             size: self.file_size as u32,
@@ -119,7 +83,7 @@ struct PetroglyphMegaFile
     _num_filenames: u32,
     _num_files: u32,
     filename_table: Vec<mega_file::Filename>,
-    table_records: Vec<PetroglyphTableRecord>
+    table_records: Vec<mega_file::TableRecord>
 }
 
 impl PetroglyphMegaFile
@@ -137,7 +101,7 @@ impl PetroglyphMegaFile
         }).collect();
 
         let table_records = (0..num_files).into_iter().map(|_i| {
-            PetroglyphTableRecord::create_from_cursor(&mut file).unwrap()
+            mega_file::TableRecord::create_from_cursor(&mut file).unwrap()
         }).collect();
 
         Ok(PetroglyphMegaFile{
@@ -193,7 +157,7 @@ impl PetroglyphMegaFile
         .sum()
     }
 
-    fn write_file_table_records<W: Write>(writer: &mut W, files: &Vec<PetroglyphExportFile>) -> Vec<PetroglyphTableRecord> {
+    fn write_file_table_records<W: Write>(writer: &mut W, files: &Vec<PetroglyphExportFile>) -> Vec<mega_file::TableRecord> {
         files
             .iter()
             .map(|export_file|{
