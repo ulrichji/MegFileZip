@@ -1,5 +1,8 @@
 mod crc;
 mod osext;
+mod petroglyph;
+
+use petroglyph::mega_file;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use structopt::StructOpt;
@@ -10,42 +13,6 @@ use std::io::Seek;
 use std::io::Read;
 use std::io::SeekFrom;
 use std::path::PathBuf;
-
-struct PetroglyphFilename
-{
-    filename: String
-}
-
-impl Clone for PetroglyphFilename
-{
-    fn clone(&self) -> PetroglyphFilename {
-        PetroglyphFilename{ filename: self.filename.clone() }
-    }
-}
-
-impl PetroglyphFilename
-{
-    fn create_from_cursor<R: Read + Seek>(reader: &mut R) -> Result<PetroglyphFilename, std::io::Error> {
-        let filename_length = reader.read_u16::<LittleEndian>()?;
-        //reader.seek(SeekFrom::Current(2))?;
-
-        let mut string_buf = Vec::new();
-        string_buf.resize(filename_length as usize, 0);
-        reader.read(&mut string_buf)?;
-        let filename = String::from_utf8(string_buf).unwrap();
-
-        //println!("File: \"{}\", len: {}", filename, filename_length);
-
-        Ok( PetroglyphFilename{ filename: filename} )
-    }
-
-    fn from_path(path: &PathBuf) -> PetroglyphFilename{
-        PetroglyphFilename{ filename: path.components()
-                                          .map(|x| x.as_os_str().to_str().unwrap())
-                                          .collect::<Vec<&str>>()
-                                          .join("\\") }
-    }
-}
 
 struct PetroglyphTableRecord
 {
@@ -89,19 +56,19 @@ struct PetroglyphFileMeta
     index: u32,
     size: u32,
     start: u32,
-    name: PetroglyphFilename,
+    name: mega_file::Filename,
     name_index: u32
 }
 
 impl PetroglyphFileMeta
 {
-    fn create_from_table_record(table_record: &PetroglyphTableRecord, filename_list: &Vec<PetroglyphFilename>) -> PetroglyphFileMeta {
+    fn create_from_table_record(table_record: &PetroglyphTableRecord, filename_list: &Vec<mega_file::Filename>) -> PetroglyphFileMeta {
         PetroglyphFileMeta{
             crc: table_record.crc,
             index: table_record.index,
             size: table_record.size,
             start: table_record.start,
-            name: PetroglyphFilename{
+            name: mega_file::Filename {
                 filename: filename_list[table_record.name as usize].filename.clone()
             },
             name_index: table_record.name
@@ -123,7 +90,7 @@ struct PetroglyphExportFile
 impl PetroglyphExportFile
 {
     fn from_path(path: &PathBuf) -> PetroglyphExportFile {
-        let internal_file_name = PetroglyphFilename::from_path(path).filename;
+        let internal_file_name = mega_file::Filename::from_path(path).filename;
         PetroglyphExportFile {
             file_path: path.clone(),
             internal_file_name: internal_file_name.clone(),
@@ -151,7 +118,7 @@ struct PetroglyphMegaFile
     file: File,
     _num_filenames: u32,
     _num_files: u32,
-    filename_table: Vec<PetroglyphFilename>,
+    filename_table: Vec<mega_file::Filename>,
     table_records: Vec<PetroglyphTableRecord>
 }
 
@@ -166,7 +133,7 @@ impl PetroglyphMegaFile
         println!("Found {} filenames and {} files", num_filenames, num_files);
 
         let filename_table = (0..num_filenames).into_iter().map(|_i| {
-            PetroglyphFilename::create_from_cursor(&mut file).unwrap()
+            mega_file::Filename::create_from_cursor(&mut file).unwrap()
         }).collect();
 
         let table_records = (0..num_files).into_iter().map(|_i| {
@@ -286,7 +253,7 @@ impl PetroglyphMegaFile
             file: output_file,
             _num_filenames: filenames.len() as u32,
             _num_files: files.len() as u32,
-            filename_table: filenames.iter().map(|filename_str| PetroglyphFilename{ filename: filename_str.clone() } ).collect(),
+            filename_table: filenames.iter().map(|filename_str| mega_file::Filename{ filename: filename_str.clone() } ).collect(),
             table_records: table_records
         }
     }

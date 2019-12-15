@@ -1,4 +1,11 @@
 
+// Table taken from web:
+//     url: https://docs.microsoft.com/en-us/openspecs/office_protocols/ms-abs/06966aa2-70da-4bf9-8448-3355f277cd77?redirectedfrom=MSDN
+//     title: 5.1 32-Bit CRC Algorithm
+//     fetch_date: 2019-12-14
+//     page_date: 2019-02-14
+//     author: Microsoft
+//     other: Microsoft Open Specifications
 static CRC32_TABLE: [u32; 256] = [
     0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA,
     0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3,
@@ -65,6 +72,13 @@ static CRC32_TABLE: [u32; 256] = [
     0xB3667A2E, 0xC4614AB8, 0x5D681B02, 0x2A6F2B94,
     0xB40BBE37, 0xC30C8EA1, 0x5A05DF1B, 0x2D02EF8D];
 
+// function taken from web:
+//     url: https://docs.microsoft.com/en-us/openspecs/office_protocols/ms-abs/06966aa2-70da-4bf9-8448-3355f277cd77?redirectedfrom=MSDN
+//     title: 5.1 32-Bit CRC Algorithm
+//     fetch_date: 2019-12-14
+//     page_date: 2019-02-14
+//     author: Microsoft
+//     other: Microsoft Open Specifications
 pub fn compute_from_bytes(bytes: &[u8]) -> u32 {
     let mut crc: u32 = 0xFFFFFFFF;
 
