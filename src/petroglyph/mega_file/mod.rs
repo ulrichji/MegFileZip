@@ -20,11 +20,7 @@ struct PetroglyphExportFile
 {
     file_path: PathBuf,
     internal_file_name: String,
-    file_size: usize,
-    crc32: u32,
-    index: u32,
-    file_name_index: u32,
-    start_byte: usize
+    table_record: TableRecord
 }
 
 impl PetroglyphExportFile
@@ -34,22 +30,18 @@ impl PetroglyphExportFile
         PetroglyphExportFile {
             file_path: path.clone(),
             internal_file_name: internal_file_name.clone(),
-            file_size: osext::get_file_size(path).unwrap(),
-            crc32: crc::crc32::compute_from_bytes(internal_file_name.as_bytes()),
-            index: 0,
-            file_name_index: 0,
-            start_byte: 0
+            table_record: TableRecord{
+                crc: crc::crc32::compute_from_bytes(internal_file_name.as_bytes()),
+                index: 0,
+                size: osext::get_file_size(path).unwrap() as u32,
+                start: 0,
+                name: 0
+            }
         }
     }
 
-    fn as_table_record(&self) -> TableRecord {
-        return TableRecord {
-            crc: self.crc32,
-            index: self.index,
-            size: self.file_size as u32,
-            start: self.start_byte as u32,
-            name: self.file_name_index
-        }
+    fn get_table_record(&self) -> &TableRecord {
+        &self.table_record
     }
 }
 
@@ -170,23 +162,23 @@ impl PetroglyphMegaFile
                  .map(|export_file| export_file.internal_file_name.clone())
                  .collect();
         for (i, export_file) in files.iter_mut().enumerate() {
-            export_file.file_name_index = i as u32;
+            export_file.table_record.name = i as u32;
         }
 
         let header_len = PetroglyphMegaFile::write_header(&mut output_file, files.len(), files.len());
         let filenames_len = PetroglyphMegaFile::write_file_names(&mut output_file, &filenames);
         let table_records_size: usize = files
             .iter()
-            .map(|export_file| export_file.as_table_record().get_binary_size())
+            .map(|export_file| export_file.get_table_record().get_binary_size())
             .sum();
         let files_start_index = header_len + filenames_len + table_records_size;
 
-        files.sort_by_key(|export_file| export_file.crc32);
+        files.sort_by_key(|export_file| export_file.table_record.crc);
         let mut current_file_index = files_start_index;
         for (i, export_file) in files.iter_mut().enumerate() {
-            export_file.index = i as u32;
-            export_file.start_byte = current_file_index;
-            current_file_index += export_file.file_size;
+            export_file.table_record.index = i as u32;
+            export_file.table_record.start = current_file_index as u32;
+            current_file_index += export_file.table_record.size as usize;
         }
 
         let table_records = PetroglyphMegaFile::write_file_table_records(&mut output_file, &files);
@@ -223,7 +215,7 @@ impl PetroglyphMegaFile
         files
             .iter()
             .map(|export_file|{
-                let table_record = export_file.as_table_record();
+                let table_record = export_file.get_table_record().clone();
                 table_record.serialize(writer);
                 table_record
             })

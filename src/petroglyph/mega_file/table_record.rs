@@ -13,6 +13,18 @@ pub struct TableRecord
     pub name: u32
 }
 
+impl Clone for TableRecord {
+    fn clone(&self) -> TableRecord {
+        TableRecord {
+            crc: self.crc,
+            index: self.index,
+            size: self.size,
+            start: self.start,
+            name: self.name
+        }
+    }
+}
+
 impl TableRecord
 {
     pub fn create_from_cursor<R: Read + Seek>(reader: &mut R) -> Result<TableRecord,
