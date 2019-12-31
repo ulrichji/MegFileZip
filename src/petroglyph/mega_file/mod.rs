@@ -3,6 +3,7 @@ pub mod table_record;
 pub mod filemeta;
 pub mod export_file;
 pub mod header;
+pub mod file_writer;
 
 pub use filename::Filename;
 pub use table_record::TableRecord;
@@ -13,13 +14,7 @@ pub use header::Header;
 mod osext;
 mod crc;
 
-use byteorder::{LittleEndian, WriteBytesExt};
-
 use std::fs::File;
-use std::io::Write;
-use std::io::Seek;
-use std::io::Read;
-use std::io::SeekFrom;
 use std::path::PathBuf;
 
 pub struct MegaFile
@@ -30,7 +25,7 @@ pub struct MegaFile
     table_records: Vec<TableRecord>
 }
 
-impl MegaFile
+impl<'a> MegaFile
 {
     pub fn create(path: &PathBuf) -> Result<MegaFile, std::io::Error> {
         let mut file = File::open(path)?;
@@ -48,134 +43,140 @@ impl MegaFile
             .collect();
 
         Ok(MegaFile{
-            file,
-            _header: header,
-            filename_table,
-            table_records})
+               file,
+               _header: header,
+               filename_table,
+               table_records
+        })
     }
 
-    pub fn dump_to_file(&mut self, internal_path: &String, output: &PathBuf) -> Result<(), &'static str>
-    {
-        let entry_to_use = self.table_records.iter()
-            .find(|&x| {
-                let name_index = x.name;
-                let filename_container = &self.filename_table[name_index as usize];
-                filename_container.filename.eq(internal_path)
-            });
+    pub fn extract_files_to(&self, base_directory: &PathBuf) -> Result<(), std::io::Error> {
+        MegaFile::prepare_extraction_directory(&base_directory)?;
 
-        match entry_to_use
-        {
-            Some(x) => {
-                self.file.seek(SeekFrom::Start(x.start as u64)).unwrap();
-                let mut file_raw_content = Vec::new();
-                file_raw_content.resize(x.size as usize, 0);
-                self.file.read(&mut file_raw_content).unwrap();
+        for export_file in self.get_export_file_iterator() {
+            println!("Export file: {:?}", export_file.file_path);
 
-                std::fs::create_dir_all(output.parent().unwrap()).unwrap();
-                let mut write_file = File::create(output).unwrap();
-                write_file.write(&file_raw_content).unwrap();
+            let output_path = base_directory.join(&export_file.file_path);
+            let mut read_file_handle = self.file.try_clone()?;
+            export_file.extract_to_file(&mut read_file_handle, &output_path)?;
+        }
 
-                //self.file.seek(SeekFrom::Start())
-                return Ok(())
-            },
-            None => Err("Unable to find the given file path")
+        Ok(())
+    }
+
+    fn prepare_extraction_directory(base_directory: &PathBuf) -> Result<(), std::io::Error> {
+        if base_directory.is_dir() {
+            Ok(())
+        }
+        else if !base_directory.exists() {
+            std::fs::create_dir_all(&base_directory)
+        }
+        else {
+            Err(std::io::Error::new(std::io::ErrorKind::InvalidInput,
+                                    "Invalid base directory. Must either be directory or non-existing directory (e.g not file)"))
         }
     }
 
-    pub fn get_file_names(&self) -> impl Iterator<Item = &String> {
+    fn get_export_file_iterator(&'a self) -> impl Iterator<Item = ExportFile> + 'a {
+        self.table_records
+            .iter()
+            .map(move |table_record| {
+                let internal_path = self.filename_table[table_record.name as usize].filename.clone();
+                ExportFile {
+                    file_path: PathBuf::from(&internal_path),
+                    internal_file_name: internal_path,
+                    table_record: table_record.clone()
+                }
+            })
+    }
+
+    pub fn get_file_name_iterator(&self) -> impl Iterator<Item = &String> {
         self.filename_table.iter().map(|t| &t.filename)
     }
 
-    pub fn get_metadata(&self) -> Vec<FileMeta> {
+    pub fn get_metadata_iterator(&'a self) -> impl Iterator<Item = FileMeta> + 'a {
         self.table_records
             .iter()
-            .map(|table_record| FileMeta::create_from_table_record(&table_record,
-                                                                   &self.filename_table))
-            .collect()
+            .map(move |table_record| FileMeta::create_from_table_record(&table_record,
+                                                                        &self.filename_table))
     }
 
     pub fn create_from_directory(input_dir: &PathBuf, output_file_path: &PathBuf) -> MegaFile {
         let mut output_file = File::create(output_file_path).unwrap();
-        let files_to_read = osext::list_files_recursive(input_dir).unwrap();
+        let files = MegaFile::get_files_to_zip_from_directory_sorted(input_dir);
+        let files = MegaFile::set_file_name_indices(files);
 
-        let mut files: Vec<ExportFile> = files_to_read
-            .iter()
-            .map(|path| ExportFile::from_path(path))
-            .collect();
-
-        files.sort_by_key(|export_file| export_file.internal_file_name.clone() );
-        let filenames: Vec<String> =
-            files.iter()
-                 .map(|export_file| export_file.internal_file_name.clone())
-                 .collect();
-        for (i, export_file) in files.iter_mut().enumerate() {
-            export_file.table_record.name = i as u32;
-        }
-
-        let header_len = MegaFile::write_header(&mut output_file, files.len(), files.len());
-        let filenames_len = MegaFile::write_file_names(&mut output_file, &filenames);
-        let table_records_size: usize = files
-            .iter()
-            .map(|export_file| export_file.get_table_record().get_binary_size())
-            .sum();
+        let header_len = file_writer::write_header(&mut output_file, files.len(), files.len());
+        let filenames_len = file_writer::write_file_names(&mut output_file,
+                                                          &MegaFile::get_file_names(&files));
+        let table_records_size = MegaFile::compute_table_records_size(&files);
         let files_start_index = header_len + filenames_len + table_records_size;
 
-        files.sort_by_key(|export_file| export_file.table_record.crc);
-        let mut current_file_index = files_start_index;
-        for (i, export_file) in files.iter_mut().enumerate() {
-            export_file.table_record.index = i as u32;
-            export_file.table_record.start = current_file_index as u32;
-            current_file_index += export_file.table_record.size as usize;
-        }
+        let files = MegaFile::order_files_by_crc(files);
+        let files = MegaFile::setup_table_records(files, files_start_index);
 
-        let table_records = MegaFile::write_file_table_records(&mut output_file, &files);
-        MegaFile::write_files(&mut output_file, &files);
+        let table_records = file_writer::write_file_table_records(&mut output_file, &files);
+        file_writer::write_files(&mut output_file, &files);
 
         MegaFile {
             file: output_file,
-            _header: Header::create(filenames.len() as u32, files.len() as u32),
-            filename_table: filenames.iter().map(|filename_str| Filename{ filename: filename_str.clone() } ).collect(),
+            _header: Header::create(MegaFile::get_file_names(&files).len() as u32,
+                                    files.len() as u32),
+            filename_table: MegaFile::get_file_name_containers(&files),
             table_records: table_records
         }
     }
 
-    fn write_file_names<W: Write>(writer: &mut W, filenames: &Vec<String>) -> usize {
-        filenames.iter().map(|filename|{
-            writer.write_u16::<LittleEndian>(filename.as_bytes().len() as u16).unwrap();
-            writer.write(filename.as_bytes()).unwrap();
-
-            std::mem::size_of::<u16>() + filename.as_bytes().len()
-        })
-        .sum()
+    fn get_files_to_zip_from_directory_sorted(input_dir: &PathBuf) -> Vec<ExportFile> {
+        let files_to_read = osext::list_files_recursive(input_dir).unwrap();
+        MegaFile::sorted_files_by_path(files_to_read.iter()
+                                                    .map(|path| ExportFile::from_path(path))
+                                                    .collect::<Vec<ExportFile>>())
     }
 
-    fn write_header<W: Write>(writer: &mut W, num_filenames: usize, num_files: usize) -> usize {
-        writer.write_u32::<LittleEndian>(num_filenames as u32).unwrap();
-        writer.write_u32::<LittleEndian>(num_files as u32).unwrap();
-
-        std::mem::size_of::<u32>() + std::mem::size_of::<u32>()
+    fn sorted_files_by_path(mut file_list: Vec<ExportFile>) -> Vec<ExportFile> {
+        file_list.sort_by_key(|export_file| export_file.internal_file_name.clone() );
+        file_list
     }
 
-    fn write_file_table_records<W: Write>(writer: &mut W,
-                                          files: &Vec<ExportFile>) -> Vec<TableRecord> {
-        files
-            .iter()
-            .map(|export_file|{
-                let table_record = export_file.get_table_record().clone();
-                table_record.serialize(writer);
-                table_record
-            })
-            .collect()
-    }
-
-    fn write_files<W: Write>(writer: &mut W, files_to_read: &Vec<ExportFile>) {
-        for export_file in files_to_read {
-            let mut file = File::open(&export_file.file_path).unwrap();
-            let mut file_content = Vec::new();
-            file.read_to_end(&mut file_content).unwrap();
-
-            println!("Writing {} bytes to file {:?}", file_content.len(), export_file.file_path);
-            writer.write(&file_content).unwrap();
+    fn set_file_name_indices(mut file_list: Vec<ExportFile>) -> Vec<ExportFile> {
+        for (i, export_file) in file_list.iter_mut().enumerate() {
+            export_file.table_record.name = i as u32;
         }
+        file_list
+    }
+
+    fn get_file_names(file_list: &Vec<ExportFile>) -> Vec<String> {
+        file_list.iter()
+                 .map(|export_file| export_file.internal_file_name.clone())
+                 .collect()
+    }
+
+    fn compute_table_records_size(file_list: &Vec<ExportFile>) -> usize {
+        file_list.iter()
+                 .map(|export_file| export_file.get_table_record().get_binary_size())
+                 .sum()
+    }
+
+    fn order_files_by_crc(mut file_list: Vec<ExportFile>) -> Vec<ExportFile> {
+        file_list.sort_by_key(|export_file| export_file.table_record.crc);
+        file_list
+    }
+
+    fn setup_table_records(mut file_list: Vec<ExportFile>, files_start_index: usize) -> Vec<ExportFile> {
+        let mut current_file_index = files_start_index;
+        for (i, export_file) in file_list.iter_mut().enumerate() {
+            export_file.table_record.index = i as u32;
+            export_file.table_record.start = current_file_index as u32;
+            current_file_index += export_file.table_record.size as usize;
+        }
+        file_list
+    }
+
+    fn get_file_name_containers(file_list: &Vec<ExportFile>) -> Vec<Filename> {
+        MegaFile::get_file_names(&file_list)
+            .iter()
+            .map(|filename_str| Filename{ filename: filename_str.clone() } )
+            .collect()
     }
 }
